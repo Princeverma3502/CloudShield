@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  # The Database
+  cache-db:
+    image: redis/redis-stack:latest
+    ports:
+      - "6379:6379"    # Redis data port
+      - "8001:8001"    # RedisInsight Visual Tool (Open this in browser later!)
+
+  # The Logic
+  api-server:
+    build: ./backend
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_URL=redis://cache-db:6379
+    depends_on:
+      - cache-db

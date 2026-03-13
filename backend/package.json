@@ -1,0 +1,26 @@
+{
+  "name": "cache-cloud-backend",
+  "version": "1.0.0",
+  "description": "This is high performance middleware to reduce the load of database and saving rate limit problem",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "y"
+  },
+  "keywords": [
+    "Cache-Cloud",
+    "Middleware"
+  ],
+  "author": "Prince Verma",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.13.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "redis": "^5.11.0"
+  }
+}
