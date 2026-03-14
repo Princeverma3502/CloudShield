@@ -3,3 +3,6 @@ backend/node_modules/
 frontend/node_modules/
 .env
 data/
+build/
+dist/
+.DS_Store

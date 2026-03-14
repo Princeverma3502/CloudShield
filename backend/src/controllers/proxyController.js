@@ -9,36 +9,42 @@ const handleProxy = async (req, res) => {
     if (!targetUrl) return res.status(400).json({ error: "URL is required" });
 
     try {
-        // 1. Try Cache
+        // 1. Check Redis Cache
         const cached = await redisService.get(targetUrl);
         if (cached) {
             stats.hits++;
-            return res.json({ source: 'CACHE', stats, data: cached });
+
+            return res.json(cached);
         }
 
-        // 2. Try Coalescing (Waiting Room)
         if (pendingRequests.has(targetUrl)) {
             stats.coalesced++;
             const data = await pendingRequests.get(targetUrl);
-            return res.json({ source: 'COALESCED', stats, data });
+            return res.json(data);
         }
 
-        // 3. Fresh Fetch
         stats.misses++;
+
         const fetchPromise = axios.get(targetUrl).then(r => r.data);
+        
         pendingRequests.set(targetUrl, fetchPromise);
 
         const data = await fetchPromise;
-        await redisService.set(targetUrl, data);
+
+        await redisService.set(targetUrl, data, 60);
         pendingRequests.delete(targetUrl);
 
-        res.json({ source: 'API', stats, data });
+        res.json(data);
     } catch (error) {
         pendingRequests.delete(targetUrl);
+        console.error("Fetch error:", error.message);
         res.status(500).json({ error: "Fetch failed" });
     }
 };
 
-const getStats = (req, res) => res.json(stats);
+const getStats = (req, res) => {
+    console.log("Current Stats:", stats);
+    res.json(stats);
+};
 
 module.exports = { handleProxy, getStats };
