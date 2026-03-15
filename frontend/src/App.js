@@ -3,17 +3,18 @@ import axios from 'axios';
 import toast, { Toaster } from 'react-hot-toast';
 import { createClient } from '@supabase/supabase-js';
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { AreaChart, Area, Tooltip, ResponsiveContainer, XAxis } from 'recharts';
+import { AreaChart, Area, Tooltip, ResponsiveContainer } from 'recharts';
 import { 
   ShieldCheck, Clock, Settings, Sun, Moon, 
   Zap, Layers, Database, Trash2, 
   Save, LogOut, Github, Activity, AlertTriangle, 
-  Globe, Share2
+  Globe, Share2, Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import './index.css';
 
-// Initialize Supabase
 const supabase = createClient(
   process.env.REACT_APP_SUPABASE_URL || '',
   process.env.REACT_APP_SUPABASE_ANON_KEY || ''
@@ -24,6 +25,8 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://cloudshield-backe
 
 export default function App() {
   const [session, setSession] = useState(null);
+  const [reportId, setReportId] = useState(null);
+  const [isValidReport, setIsValidReport] = useState(true);
   const [stats, setStats] = useState({ hits: 0, misses: 0, coalesced: 0, totalSavedMs: 0, ttl: 60 });
   const [logs, setLogs] = useState([]);
   const [incidents, setIncidents] = useState([]);
@@ -34,70 +37,59 @@ export default function App() {
   const [healthStatus, setHealthStatus] = useState('stable');
   const [totalSavedData, setTotalSavedData] = useState(0);
 
-  // Auth Listener
+  // Detect Public Report Mode
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
-    return () => subscription.unsubscribe();
+    const path = window.location.pathname;
+    if (path.startsWith('/report/')) {
+      setReportId(path.split('/')[2]);
+    } else {
+      supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
+      return () => subscription.unsubscribe();
+    }
   }, []);
 
-  // Main Data Fetching Logic
   const fetchData = async () => {
+    const targetId = reportId || (session ? session.user.id : null);
+    if (!targetId) return;
+
     const startTime = Date.now();
     try {
-      const s = await axios.get(`${API_BASE_URL}/api/performance`);
-      const l = await axios.get(`${API_BASE_URL}/api/logs`);
+      const [s, l] = await Promise.all([
+        axios.get(`${API_BASE_URL}/api/performance?clientId=${targetId}`),
+        axios.get(`${API_BASE_URL}/api/logs?clientId=${targetId}`)
+      ]);
+      
       const latency = Date.now() - startTime;
-
-      // Logic: Update Health Status & Log Incidents
       let currentHealth = latency < 400 ? 'stable' : latency < 900 ? 'sluggish' : 'critical';
       
-      if (currentHealth === 'critical' && healthStatus !== 'critical') {
-        setIncidents(prev => [{ 
-          id: Date.now(), 
-          time: new Date().toLocaleTimeString(), 
-          type: 'LATENCY_SPIKE', 
-          detail: `${latency}ms RTT delay detected` 
-        }, ...prev].slice(0, 5));
+      if (currentHealth === 'critical' && healthStatus !== 'critical' && !reportId) {
+        setIncidents(prev => [{ id: Date.now(), time: new Date().toLocaleTimeString(), type: 'LATENCY_SPIKE', detail: `${latency}ms RTT delay detected` }, ...prev].slice(0, 5));
         toast.error("Network Latency Warning", { icon: '⚠️' });
       }
       
       setHealthStatus(currentHealth);
       setStats(s.data);
       setLogs(l.data || []);
-      
-      // Calculate Bandwidth Savings (150KB per hit)
       setTotalSavedData((s.data.hits * 0.15).toFixed(2));
+      setIsValidReport(true);
       
-      // Update Chart
-      setChartData(prev => [...prev, { 
-        time: new Date().toLocaleTimeString().slice(-5), 
-        hits: s.data.hits, 
-        misses: s.data.misses 
-      }].slice(-15));
-
+      setChartData(prev => [...prev, { time: new Date().toLocaleTimeString().slice(-5), hits: s.data.hits, misses: s.data.misses }].slice(-15));
     } catch (e) {
-      if (healthStatus !== 'offline') {
-        setIncidents(prev => [{ 
-          id: Date.now(), 
-          time: new Date().toLocaleTimeString(), 
-          type: 'CONNECTION_LOST', 
-          detail: 'Backend API Unreachable' 
-        }, ...prev]);
+      if (reportId) setIsValidReport(false);
+      if (healthStatus !== 'offline' && !reportId) {
+        setIncidents(prev => [{ id: Date.now(), time: new Date().toLocaleTimeString(), type: 'CONNECTION_LOST', detail: 'Backend API Unreachable' }, ...prev]);
       }
       setHealthStatus('offline');
     }
   };
 
   useEffect(() => {
-    if (session) {
-      fetchData();
-      const intervalId = setInterval(fetchData, 5000);
-      return () => clearInterval(intervalId);
-    }
-  }, [session]);
+    fetchData();
+    const intervalId = setInterval(fetchData, 5000);
+    return () => clearInterval(intervalId);
+  }, [session, reportId]);
 
-  // Infrastructure Actions
   const handleUpdateTTL = async () => {
     try {
       await axios.post(`${API_BASE_URL}/api/settings`, { ttl: parseInt(ttlInput) });
@@ -119,12 +111,43 @@ export default function App() {
     toast.success("Public Report Link Copied!");
   };
 
-  // Styling Helpers
+  const exportPDF = () => {
+    const element = document.getElementById('report-area');
+    toast.loading("Generating PDF...", { id: 'pdf-toast' });
+    
+    // Temporarily hide map to prevent canvas CORS issues if they arise
+    const mapEl = document.getElementById('world-map');
+    if(mapEl) mapEl.style.opacity = '0.5';
+
+    html2canvas(element, { backgroundColor: isDark ? '#020617' : '#f8fafc', scale: 2, useCORS: true }).then(canvas => {
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 210, (canvas.height * 210) / canvas.width);
+      pdf.save(`CloudShield-Report-${new Date().toLocaleDateString()}.pdf`);
+      if(mapEl) mapEl.style.opacity = '1';
+      toast.success("PDF Downloaded!", { id: 'pdf-toast' });
+    });
+  };
+
   const themeClass = isDark ? "bg-[#020617] text-slate-300" : "bg-slate-50 text-slate-900";
   const cardClass = isDark ? "glass" : "bg-white border-slate-200 shadow-xl";
-  const totalRequests = (stats.hits + stats.misses + stats.coalesced) || 1;
+  const totalRequests = (stats.hits + stats.misses) || 1;
 
-  if (!session) {
+  // 404 View
+  if (!isValidReport) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center p-6 text-center ${themeClass}`}>
+        <div>
+          <AlertTriangle size={60} className="text-red-500 mx-auto mb-4" />
+          <h1 className="text-2xl font-black uppercase italic mb-4">Report Not Found</h1>
+          <p className="opacity-60 mb-8">This infrastructure report does not exist.</p>
+          <button onClick={() => window.location.href = '/'} className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold uppercase text-[10px]">Return Home</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Login View
+  if (!session && !reportId) {
     return (
       <div className={`min-h-screen flex items-center justify-center p-6 ${isDark ? 'bg-[#020617]' : 'bg-slate-100'}`}>
         <Toaster position="top-center" />
@@ -139,12 +162,12 @@ export default function App() {
     );
   }
 
+  // Main Dashboard / Report View
   return (
-    <div className={`min-h-screen transition-colors duration-700 p-6 md:p-10 ${themeClass}`}>
+    <div id="report-area" className={`min-h-screen transition-colors duration-700 p-6 md:p-10 ${themeClass}`}>
       <Toaster position="bottom-right" />
       <div className="max-w-7xl mx-auto">
         
-        {/* Header Section */}
         <header className="flex flex-col md:row justify-between items-center mb-12 gap-6 md:flex-row">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/20"><Activity size={24} className="text-white" /></div>
@@ -160,11 +183,19 @@ export default function App() {
             </div>
           </div>
           
-          <div className="flex gap-2 bg-black/20 p-1.5 rounded-3xl border border-white/5 backdrop-blur-md">
-            {['monitor', 'integration', 'settings'].map(tab => (
-              <button key={tab} onClick={() => setActiveTab(tab)} className={`px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase transition-all ${activeTab === tab ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}>{tab}</button>
-            ))}
-            <button onClick={() => supabase.auth.signOut()} className="p-3 text-slate-500 hover:text-red-500 transition-colors"><LogOut size={18} /></button>
+          <div className="flex items-center gap-4">
+            <button onClick={exportPDF} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[10px] font-black uppercase transition-all shadow-lg shadow-blue-500/20">
+              <Download size={14} /> Save PDF
+            </button>
+            
+            {!reportId && (
+              <div className="flex gap-2 bg-black/20 p-1.5 rounded-3xl border border-white/5 backdrop-blur-md">
+                {['monitor', 'integration', 'settings'].map(tab => (
+                  <button key={tab} onClick={() => setActiveTab(tab)} className={`px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase transition-all ${activeTab === tab ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}>{tab}</button>
+                ))}
+                <button onClick={() => supabase.auth.signOut()} className="p-3 text-slate-500 hover:text-red-500 transition-colors"><LogOut size={18} /></button>
+              </div>
+            )}
           </div>
         </header>
 
@@ -223,7 +254,7 @@ export default function App() {
               </div>
 
               {/* Map Visualization */}
-              <div className={`lg:col-span-3 border rounded-[3rem] h-[450px] overflow-hidden ${cardClass}`}>
+              <div id="world-map" className={`lg:col-span-3 border rounded-[3rem] h-[450px] overflow-hidden ${cardClass}`}>
                 <div className="absolute top-8 left-8 z-10">
                    <h4 className="text-[10px] font-black uppercase tracking-widest opacity-60 flex items-center gap-2"><Globe size={14}/> Live Origin Trace</h4>
                 </div>
@@ -242,7 +273,6 @@ export default function App() {
               </div>
             </motion.div>
           ) : activeTab === 'integration' ? (
-            /* Integration & Public SaaS Tab */
             <motion.div key="i" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="max-w-3xl mx-auto space-y-6">
                <div className={`p-10 border rounded-[3rem] ${cardClass}`}>
                   <h3 className="text-xl font-black mb-6 text-blue-500 flex items-center gap-3"><Layers size={24} /> Public Website Integration</h3>
@@ -250,11 +280,7 @@ export default function App() {
                   
                   <div className="relative group">
                     <div className="bg-black/40 p-6 rounded-3xl border border-white/5 font-mono text-[11px] text-blue-300 overflow-x-auto custom-scrollbar">
-                      {`<script 
-  src="${API_BASE_URL}/shield.js" 
-  data-client-id="${session.user.id}"
-  async>
-</script>`}
+                      {`<script src="${API_BASE_URL}/shield.js" data-client-id="${session.user.id}" async></script>`}
                     </div>
                     <button onClick={() => {
                       navigator.clipboard.writeText(`<script src="${API_BASE_URL}/shield.js" data-client-id="${session.user.id}" async></script>`);
@@ -275,7 +301,7 @@ export default function App() {
                     {[...new Set(logs.map(l => l.origin))].length === 0 ? <p className="text-[10px] opacity-40 italic">Waiting for first integration hit...</p> : 
                       [...new Set(logs.map(l => l.origin))].map(domain => (
                         <div key={domain} className="flex justify-between items-center p-4 rounded-2xl bg-white/5 border border-white/5">
-                           <span className="text-xs font-bold text-slate-300">{domain || 'Localhost'}</span>
+                           <span className="text-xs font-bold">{domain || 'Localhost'}</span>
                            <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full font-black uppercase">Receiving Data</span>
                         </div>
                       ))
@@ -284,14 +310,13 @@ export default function App() {
                </div>
             </motion.div>
           ) : (
-            /* Settings Tab */
             <motion.div key="s" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="max-w-2xl mx-auto">
               <div className={`border rounded-[3.5rem] p-12 ${cardClass}`}>
                 <h3 className="text-xl font-black mb-12 text-blue-500 flex items-center gap-3"><Settings size={22} /> System Controls</h3>
                 <div className="space-y-12">
                   <section>
                     <div className="flex justify-between items-end mb-6">
-                      <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest italic">Global Cache Duration: {ttlInput}s</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest italic opacity-60">Global Cache Duration: {ttlInput}s</p>
                       <Clock size={20} className="opacity-20" />
                     </div>
                     <input type="range" min="10" max="3600" step="10" value={ttlInput} onChange={(e) => setTtlInput(e.target.value)} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 mb-8" />
@@ -316,7 +341,6 @@ export default function App() {
   );
 }
 
-// Sub-component for Statistics
 const StatBar = ({ label, value, total, color, icon: Icon }) => {
   const percentage = Math.round((value / total) * 100) || 0;
   return (
