@@ -10,8 +10,9 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const geoUrl = "https://raw.githubusercontent.com/lotusms/projects/master/hostel/aims/t3/world-110m.json";
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+// Fixed Map URL
+const geoUrl = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
+const API_BASE = process.env.REACT_APP_API_URL || 'https://cloudshield-backend.onrender.com';
 
 const Dashboard = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -20,7 +21,6 @@ const Dashboard = () => {
   const [logs, setLogs] = useState([]);
   const [chartData, setChartData] = useState([]);
   const [activeTab, setActiveTab] = useState('monitor');
-  const [apiKey, setApiKey] = useState('demo-key-123');
   const [ttlInput, setTtlInput] = useState(60);
   const [isDark, setIsDark] = useState(true);
 
@@ -35,12 +35,15 @@ const Dashboard = () => {
         hits: s.data.hits, 
         misses: s.data.misses 
       }].slice(-15));
-    } catch (e) { console.log("Backend offline..."); }
+    } catch (e) { 
+      console.log("Backend offline or CORS issue..."); 
+    }
   };
 
   useEffect(() => {
     if (isAuthenticated) {
-      const int = setInterval(fetchData, 2000);
+      fetchData();
+      const int = setInterval(fetchData, 5000); // Increased interval to reduce load
       return () => clearInterval(int);
     }
   }, [isAuthenticated]);
@@ -59,6 +62,7 @@ const Dashboard = () => {
   };
 
   const downloadCSV = () => {
+    if (logs.length === 0) return toast.error("No logs to export");
     const headers = "Timestamp,Status,URL,Latency\n";
     const rows = logs.map(l => `${new Date().toISOString()},${l.status},${l.url},${l.latency}ms`).join("\n");
     const blob = new Blob([headers + rows], { type: 'text/csv' });
@@ -76,7 +80,7 @@ const Dashboard = () => {
 
   const themeClass = isDark ? "bg-[#020617] text-slate-300" : "bg-slate-50 text-slate-900";
   const cardClass = isDark ? "bg-slate-900/40 border-slate-800 backdrop-blur-xl" : "bg-white border-slate-200 shadow-xl shadow-blue-500/5";
-  const totalRequests = stats.hits + stats.misses + stats.coalesced || 1;
+  const totalRequests = (stats.hits + stats.misses + stats.coalesced) || 1;
 
   if (!isAuthenticated) {
     return (
@@ -184,7 +188,7 @@ const Dashboard = () => {
               <div className="absolute top-8 left-8 z-10 text-[11px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-3">
                 <Globe className="text-blue-500" size={18}/> Global Node Intercept
               </div>
-              <ComposableMap projectionConfig={{ scale: 180 }} style={{ width: "100%", height: "100%" }}>
+              <ComposableMap projectionConfig={{ scale: 150 }} style={{ width: "100%", height: "100%" }}>
                 <Geographies geography={geoUrl}>
                   {({ geographies }) => geographies.map((geo) => (
                     <Geography key={geo.rsmKey} geography={geo} fill={isDark ? "#0f172a" : "#cbd5e1"} stroke={isDark ? "#1e293b" : "#f1f5f9"} strokeWidth={0.5} style={{ default: { outline: 'none' }, hover: { fill: '#1e3a8a', outline: 'none' } }} />
@@ -193,15 +197,10 @@ const Dashboard = () => {
                 {logs.map((log, i) => log.geo?.lat && (
                   <Marker key={i} coordinates={[log.geo.lon, log.geo.lat]}>
                     <motion.circle initial={{ scale: 0 }} animate={{ scale: 1 }} r={5} fill={log.status === 'HIT' ? '#3b82f6' : '#f59e0b'} className="animate-ping opacity-25" />
-                    <circle r={3} fill={log.status === 'HIT' ? '#3b82f6' : '#f59e0b'} className="cursor-pointer" />
-                    <title>{`${log.geo.city || 'Unknown Node'} - ${log.latency}ms`}</title>
+                    <circle r={3} fill={log.status === 'HIT' ? '#3b82f6' : '#f59e0b'} />
                   </Marker>
                 ))}
               </ComposableMap>
-              <div className="absolute bottom-8 left-8 flex gap-4 text-[9px] font-bold opacity-60">
-                <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-blue-500"/> EDGE CACHE</span>
-                <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-amber-500"/> ORIGIN FETCH</span>
-              </div>
             </motion.div>
 
             <motion.div initial={{ x: 30, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: 0.3 }} className="space-y-6">
@@ -222,14 +221,14 @@ const Dashboard = () => {
                     <div key={i} className="flex justify-between items-center text-[10px] font-mono border-b border-white/5 pb-3 group">
                       <div className="flex items-center gap-3">
                         <span className={`px-2 py-0.5 rounded-md font-bold ${log.status === 'HIT' ? 'bg-blue-500/10 text-blue-500' : 'bg-amber-500/10 text-amber-500'}`}>{log.status}</span>
-                        <span className="opacity-50 truncate w-28 group-hover:opacity-100 transition-opacity">{log.url}</span>
+                        <span className="opacity-50 truncate w-28">{log.url}</span>
                       </div>
                       <span className="font-bold">{log.latency}ms</span>
                     </div>
                   )) : (
                     <div className="h-full flex flex-col items-center justify-center opacity-20">
                         <Activity size={32} className="mb-2 animate-bounce" />
-                        <p className="text-[10px] italic uppercase font-bold tracking-widest">Listening for traffic...</p>
+                        <p className="text-[10px] italic uppercase font-bold tracking-widest">Awaiting Engine Data...</p>
                     </div>
                   )}
                 </div>
@@ -240,13 +239,9 @@ const Dashboard = () => {
           <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="max-w-2xl mx-auto space-y-8">
             <div className={`border rounded-[2.5rem] p-10 ${cardClass}`}>
               <h3 className="text-xl font-black mb-8 flex items-center gap-4 text-blue-500"><Settings size={24} /> Engine TTL Control</h3>
-              <div className="flex justify-between text-xs font-bold text-slate-500 mb-6 uppercase tracking-widest">
-                <span>Aggressive</span>
-                <span className="text-blue-500 font-black">{ttlInput} Seconds</span>
-                <span>Persistent</span>
-              </div>
               <input type="range" min="10" max="3600" value={ttlInput} onChange={(e) => setTtlInput(e.target.value)} className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 mb-8" />
-              <button className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl text-[10px] uppercase tracking-[0.3em] hover:bg-blue-500 hover:scale-[1.02] transition-all">Re-sync Engine Config</button>
+              <button className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl text-[10px] uppercase tracking-[0.3em] hover:bg-blue-500 transition-all">Re-sync Engine Config</button>
+              <button onClick={handleLogout} className="w-full mt-4 py-3 text-red-500 text-[10px] font-black uppercase tracking-widest hover:opacity-70">Terminate Session</button>
             </div>
           </motion.div>
         )}
@@ -256,14 +251,12 @@ const Dashboard = () => {
 };
 
 const StatBar = ({ label, value, total, color, icon: Icon }) => {
-    const percentage = Math.round((value / total) * 100);
+    const percentage = Math.round((value / total) * 100) || 0;
     return (
         <div className="group">
             <div className="flex justify-between items-end mb-3">
                 <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-xl bg-white/5 group-hover:bg-blue-500/10 transition-colors">
-                        <Icon size={16} className="text-slate-400 group-hover:text-blue-500 transition-colors" />
-                    </div>
+                    <Icon size={16} className="text-slate-400" />
                     <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</span>
                 </div>
                 <div className="flex items-baseline gap-1">
@@ -272,14 +265,7 @@ const StatBar = ({ label, value, total, color, icon: Icon }) => {
                 </div>
             </div>
             <div className="h-2 w-full bg-slate-800/50 rounded-full overflow-hidden border border-white/5">
-                <motion.div 
-                    initial={{ width: 0 }} 
-                    animate={{ width: `${percentage}%` }} 
-                    transition={{ duration: 1.5, ease: "circOut" }}
-                    className={`h-full ${color} rounded-full relative`}
-                >
-                    <div className="absolute inset-0 bg-white/20 animate-pulse" />
-                </motion.div>
+                <motion.div animate={{ width: `${percentage}%` }} className={`h-full ${color} rounded-full`} />
             </div>
         </div>
     );
