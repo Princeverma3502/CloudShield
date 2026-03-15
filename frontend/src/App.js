@@ -1,28 +1,43 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import toast, { Toaster } from 'react-hot-toast';
+import { createClient } from '@supabase/supabase-js';
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
-import { AreaChart, Area, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, Tooltip, ResponsiveContainer, XAxis, YAxis } from 'recharts';
 import { 
-  ShieldCheck, Globe, Clock, Key, Settings, Sun, Moon, 
-  AlertTriangle, Download, Activity, Zap, ArrowUpRight, 
-  BarChart3, Layers, Database, Lock
+  ShieldCheck, Globe, Clock, Settings, Sun, Moon, 
+  Download, Zap, Layers, Database, Lock, Trash2, 
+  Save, LogOut, Github, Chrome, Activity
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import './index.css';
+
+// Initialize Supabase (Replace with your own keys from Supabase Dashboard)
+const supabase = createClient(
+  process.env.REACT_APP_SUPABASE_URL || 'YOUR_SUPABASE_URL',
+  process.env.REACT_APP_SUPABASE_ANON_KEY || 'YOUR_SUPABASE_ANON_KEY'
+);
 
 const GEO_DATA_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://cloudshield-backend.onrender.com';
 
 const Dashboard = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [passInput, setPassInput] = useState("");
+  const [session, setSession] = useState(null);
   const [stats, setStats] = useState({ hits: 0, misses: 0, coalesced: 0, totalSavedMs: 0, ttl: 60 });
   const [logs, setLogs] = useState([]);
   const [chartData, setChartData] = useState([]);
   const [activeTab, setActiveTab] = useState('monitor');
   const [ttlInput, setTtlInput] = useState(60);
   const [isDark, setIsDark] = useState(true);
+
+  // Auth Listener
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   const fetchData = async () => {
     try {
@@ -35,198 +50,250 @@ const Dashboard = () => {
         hits: s.data.hits, 
         misses: s.data.misses 
       }].slice(-15));
-    } catch (e) { 
-      console.warn("Telemetry offline..."); 
-    }
+    } catch (e) { console.warn("Telemetry offline..."); }
   };
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (session) {
       fetchData();
       const intervalId = setInterval(fetchData, 5000);
       return () => clearInterval(intervalId);
     }
-  }, [isAuthenticated]);
+  }, [session]);
 
-  const handleLogin = (e) => {
-    e.preventDefault();
-    setIsAuthenticated(true);
-    localStorage.setItem("admin_token", passInput);
-    toast.success("Security Clearance Verified");
+  const handleOAuthLogin = async (provider) => {
+    const { error } = await supabase.auth.signInWithOAuth({ provider });
+    if (error) toast.error(error.message);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("admin_token");
-    setIsAuthenticated(false);
-    window.location.reload();
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    toast.success("Terminal Disconnected");
   };
 
-  const downloadCSV = () => {
-    if (!logs.length) return toast.error("No logs available");
-    const headers = "Timestamp,Status,URL,Latency\n";
-    const rows = logs.map(l => `${new Date().toISOString()},${l.status},${l.url},${l.latency}ms`).join("\n");
-    const blob = new Blob([headers + rows], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Shield_Logs_${Date.now()}.csv`;
-    link.click();
-    toast.success("Logs Exported");
+  const updateTTL = async () => {
+    try {
+      await axios.post(`${API_BASE_URL}/api/config`, { ttl: parseInt(ttlInput) });
+      toast.success(`Cache TTL optimized: ${ttlInput}s`);
+    } catch (e) { toast.error("Config failed to commit"); }
   };
-
-  useEffect(() => {
-    if (localStorage.getItem("admin_token")) setIsAuthenticated(true);
-  }, []);
 
   const themeClass = isDark ? "bg-[#020617] text-slate-300" : "bg-slate-50 text-slate-900";
-  const cardClass = isDark ? "bg-slate-900/40 border-slate-800 backdrop-blur-xl" : "bg-white border-slate-200 shadow-xl";
+  const cardClass = isDark ? "glass border-slate-800/50" : "bg-white border-slate-200 shadow-xl";
   const totalRequests = (stats.hits + stats.misses + stats.coalesced) || 1;
 
-  if (!isAuthenticated) {
+  if (!session) {
     return (
       <div className={`min-h-screen flex items-center justify-center p-6 ${isDark ? 'bg-[#020617]' : 'bg-slate-100'}`}>
-        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className={`p-10 rounded-[2.5rem] w-full max-w-md border ${cardClass}`}>
-          <div className="flex justify-center mb-8">
-            <div className="relative">
-                <div className="absolute inset-0 bg-blue-500 blur-2xl opacity-20 animate-pulse"></div>
-                <img src="/logo.png" alt="Logo" className={`w-20 h-20 relative z-10 ${isDark ? 'brightness-0 invert' : ''}`} />
+        <motion.div 
+          initial={{ y: 20, opacity: 0 }} 
+          animate={{ y: 0, opacity: 1 }} 
+          className={`p-10 rounded-[3rem] w-full max-w-md border ${cardClass} text-center`}
+        >
+          <div className="flex justify-center mb-6">
+            <div className="p-4 bg-blue-600 rounded-3xl shadow-2xl shadow-blue-500/20">
+              <ShieldCheck size={40} className="text-white" />
             </div>
           </div>
-          <h2 className={`text-center text-3xl font-black mb-8 tracking-tighter ${isDark ? 'text-white' : 'text-slate-900'}`}>CloudShield</h2>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 opacity-30" size={18} />
-                <input type="password" placeholder="Passphrase" className="w-full pl-12 pr-4 py-4 rounded-2xl bg-black/20 border border-white/5 outline-none focus:border-blue-500 transition-all text-center" onChange={(e) => setPassInput(e.target.value)} />
-            </div>
-            <button className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-500 shadow-lg transition-all uppercase tracking-widest text-xs">Authorize System</button>
-          </form>
+          <h2 className={`text-3xl font-black mb-2 tracking-tighter ${isDark ? 'text-white' : 'text-slate-900'}`}>CloudShield</h2>
+          <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-10">Cyber Infrastructure Access</p>
+          
+          <div className="space-y-4">
+            <button 
+              onClick={() => handleOAuthLogin('github')}
+              className="w-full flex items-center justify-center gap-3 py-4 bg-[#24292F] text-white rounded-2xl font-bold hover:bg-black transition-all"
+            >
+              <Github size={20} /> Continue with GitHub
+            </button>
+            <button 
+              onClick={() => handleOAuthLogin('google')}
+              className="w-full flex items-center justify-center gap-3 py-4 bg-white text-black border border-slate-200 rounded-2xl font-bold hover:bg-slate-50 transition-all"
+            >
+              <Chrome size={20} /> Continue with Google
+            </button>
+          </div>
+          <p className="mt-8 text-[10px] text-slate-500 uppercase font-black tracking-widest opacity-40">Identity Managed by Supabase Auth</p>
         </motion.div>
       </div>
     );
   }
 
   return (
-    <div className={`min-h-screen transition-colors duration-700 p-8 font-sans ${themeClass} overflow-x-hidden`}>
-      <Toaster position="bottom-right" />
+    <div className={`min-h-screen transition-colors duration-700 p-6 md:p-10 font-sans ${themeClass} overflow-x-hidden`}>
+      <Toaster position="top-center" />
       <div className="max-w-7xl mx-auto">
-        <header className="flex flex-col md:flex-row justify-between items-center mb-12 gap-6">
-          <div className="flex items-center gap-4 group">
-            <motion.div whileHover={{ rotate: 180 }} transition={{ type: "spring", stiffness: 200 }} className="p-2 bg-blue-600 rounded-2xl">
-                <img src="/logo.png" alt="Logo" className="w-10 h-10 brightness-0 invert" />
-            </motion.div>
+        <header className="flex flex-col md:flex-row justify-between items-center mb-16 gap-6">
+          <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="flex items-center gap-4 group">
+            <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/40">
+                <Activity size={24} className="text-white" />
+            </div>
             <div>
                 <h1 className="text-2xl font-black tracking-tighter uppercase leading-none italic">CloudShield</h1>
-                <span className="text-[10px] font-bold text-blue-500 tracking-[0.3em] uppercase opacity-80">v2.4 Engine Active</span>
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="w-2 h-2 rounded-full bg-green-500 animate-ping" />
+                  <span className="text-[10px] font-bold text-blue-500 tracking-[0.2em] uppercase">Node: Global-v2.4</span>
+                </div>
             </div>
-          </div>
+          </motion.div>
 
-          <div className="flex items-center gap-4 bg-black/10 p-2 rounded-3xl border border-white/5">
-            <button onClick={downloadCSV} className="p-3 text-slate-400 hover:text-blue-500 transition-colors"><Download size={20} /></button>
-            <button onClick={() => setIsDark(!isDark)} className="p-3 text-slate-400 hover:text-amber-500 transition-colors">
-                {isDark ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
-            <nav className="flex gap-1 ml-2">
+          <motion.div initial={{ y: -10, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="flex items-center gap-4 bg-black/20 p-2 rounded-[2rem] border border-white/5 backdrop-blur-md">
+            <nav className="flex gap-1 p-1">
                 {['monitor', 'settings'].map(tab => (
-                    <button key={tab} onClick={() => setActiveTab(tab)} className={`px-8 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === tab ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>{tab}</button>
+                    <button key={tab} onClick={() => setActiveTab(tab)} className={`px-8 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === tab ? 'bg-blue-600 text-white shadow-xl' : 'text-slate-500 hover:text-white'}`}>{tab}</button>
                 ))}
             </nav>
-          </div>
+            <div className="h-6 w-[1px] bg-white/10 mx-2" />
+            <button onClick={() => setIsDark(!isDark)} className="p-3 text-slate-400 hover:text-amber-500 transition-colors">
+                {isDark ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+            <button onClick={handleLogout} className="p-3 text-slate-400 hover:text-red-500"><LogOut size={18} /></button>
+          </motion.div>
         </header>
 
-        {activeTab === 'monitor' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className={`p-8 rounded-[2.5rem] border ${cardClass}`}>
-                <div className="flex items-center gap-3 mb-10">
-                    <BarChart3 className="text-blue-500" size={20} />
-                    <h3 className="text-[11px] font-black uppercase text-slate-500 tracking-[0.2em]">Efficiency Engine</h3>
-                </div>
-                <div className="space-y-8">
-                    <StatBar label="Cache Hits" value={stats.hits} total={totalRequests} color="bg-blue-500" icon={Zap} />
-                    <StatBar label="Coalesced" value={stats.coalesced} total={totalRequests} color="bg-purple-500" icon={Layers} />
-                    <StatBar label="Direct Pull" value={stats.misses} total={totalRequests} color="bg-amber-500" icon={Database} />
-                </div>
-            </div>
-
-            <div className={`lg:col-span-2 border rounded-[2.5rem] p-8 h-[350px] relative ${cardClass}`}>
-              <ResponsiveContainer width="100%" height="90%">
-                <AreaChart data={chartData}>
-                  <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '16px', fontSize: '10px' }} />
-                  <Area type="monotone" dataKey="hits" stroke="#3b82f6" fillOpacity={0.1} fill="#3b82f6" strokeWidth={4} />
-                  <Area type="monotone" dataKey="misses" stroke="#f59e0b" fill="transparent" strokeWidth={2} strokeDasharray="6 6" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className={`lg:col-span-2 border rounded-[2.5rem] overflow-hidden h-[400px] relative ${cardClass}`}>
-              <ComposableMap projectionConfig={{ scale: 140 }} style={{ width: "100%", height: "100%" }}>
-                <Geographies geography={GEO_DATA_URL}>
-                  {({ geographies }) => geographies.map((geo) => (
-                    <Geography key={geo.rsmKey} geography={geo} fill={isDark ? "#0f172a" : "#cbd5e1"} stroke={isDark ? "#1e293b" : "#f1f5f9"} strokeWidth={0.5} style={{ default: { outline: 'none' } }} />
-                  ))}
-                </Geographies>
-                {logs && logs.length > 0 && logs.filter(l => l.geo && typeof l.geo.lat === 'number' && typeof l.geo.lon === 'number').map((log, i) => (
-                  <Marker key={`marker-${i}`} coordinates={[log.geo.lon, log.geo.lat]}>
-                    <circle r={3} fill={log.status === 'HIT' ? '#3b82f6' : '#f59e0b'} />
-                  </Marker>
-                ))}
-              </ComposableMap>
-            </div>
-
-            <div className="space-y-6">
-              <div className={`p-8 border rounded-[2.5rem] flex items-center justify-between ${cardClass}`}>
-                <div>
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Time Salvage</p>
-                    <p className="text-4xl font-black text-blue-500">-{stats.totalSavedMs}ms</p>
-                </div>
-                <Clock size={28} className="text-blue-500" />
+        <AnimatePresence mode="wait">
+          {activeTab === 'monitor' ? (
+            <motion.div 
+              key="monitor" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+              className="grid grid-cols-1 lg:grid-cols-3 gap-8"
+            >
+              {/* Efficiency Sliders */}
+              <div className={`p-8 rounded-[2.5rem] border ${cardClass}`}>
+                  <div className="flex items-center gap-3 mb-10">
+                      <Zap className="text-blue-500" size={20} />
+                      <h3 className="text-[11px] font-black uppercase text-slate-500 tracking-[0.2em]">Live Efficiency</h3>
+                  </div>
+                  <div className="space-y-10">
+                      <StatBar label="Cache Accuracy" value={stats.hits} total={totalRequests} color="from-blue-600 to-cyan-400" icon={ShieldCheck} delay={0.1} />
+                      <StatBar label="Traffic Coalescing" value={stats.coalesced} total={totalRequests} color="from-purple-600 to-pink-400" icon={Layers} delay={0.2} />
+                      <StatBar label="Direct Backend" value={stats.misses} total={totalRequests} color="from-amber-600 to-orange-400" icon={Database} delay={0.3} />
+                  </div>
               </div>
 
-              <div className={`p-8 border rounded-[2.5rem] ${cardClass} h-[260px] flex flex-col`}>
-                <h4 className="text-[11px] font-black text-slate-500 uppercase mb-6 tracking-widest flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"/> Live Traffic
-                </h4>
-                <div className="space-y-4 overflow-y-auto flex-1 custom-scrollbar">
-                  {logs.slice(0, 10).map((log, i) => (
-                    <div key={i} className="flex justify-between items-center text-[10px] font-mono border-b border-white/5 pb-3">
-                      <span className={log.status === 'HIT' ? 'text-blue-500' : 'text-amber-500'}>{log.status}</span>
-                      <span className="opacity-50 truncate w-32">{log.url}</span>
-                      <span className="font-bold">{log.latency}ms</span>
+              {/* Real-time Graph */}
+              <div className={`lg:col-span-2 border rounded-[2.5rem] p-8 h-[380px] relative ${cardClass}`}>
+                <div className="absolute top-6 left-8 flex items-center gap-2">
+                   <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                   <span className="text-[10px] font-black uppercase tracking-widest opacity-50">Throughput Analysis</span>
+                </div>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData} margin={{ top: 40, right: 0, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorHits" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <Tooltip content={<CustomTooltip />} />
+                    <Area type="monotone" dataKey="hits" stroke="#3b82f6" fill="url(#colorHits)" strokeWidth={4} />
+                    <Area type="monotone" dataKey="misses" stroke="#f59e0b" fill="transparent" strokeWidth={2} strokeDasharray="5 5" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Map Visualization */}
+              <div className={`lg:col-span-2 border rounded-[3rem] overflow-hidden h-[450px] relative ${cardClass}`}>
+                <ComposableMap projectionConfig={{ scale: 160 }} style={{ width: "100%", height: "100%" }}>
+                  <Geographies geography={GEO_DATA_URL}>
+                    {({ geographies }) => geographies.map((geo) => (
+                      <Geography 
+                        key={geo.rsmKey} geography={geo} 
+                        fill={isDark ? "#111827" : "#e2e8f0"} stroke={isDark ? "#1f2937" : "#cbd5e1"} 
+                        strokeWidth={0.5} style={{ default: { outline: 'none' } }} 
+                      />
+                    ))}
+                  </Geographies>
+                  {logs.filter(l => l.geo?.lat).map((log, i) => (
+                    <Marker key={i} coordinates={[log.geo.lon, log.geo.lat]}>
+                      <motion.circle 
+                        initial={{ r: 0, opacity: 0 }} animate={{ r: 4, opacity: 1 }}
+                        transition={{ duration: 1, repeat: Infinity, repeatType: "reverse" }}
+                        fill={log.status === 'HIT' ? '#3b82f6' : '#f59e0b'} 
+                      />
+                    </Marker>
+                  ))}
+                </ComposableMap>
+              </div>
+
+              {/* Data Cards */}
+              <div className="space-y-6">
+                <motion.div whileHover={{ y: -5 }} className={`p-8 border rounded-[2.5rem] flex items-center justify-between ${cardClass}`}>
+                  <div>
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Time Salvage</p>
+                      <p className="text-4xl font-black text-blue-500 tracking-tighter">-{stats.totalSavedMs}ms</p>
+                  </div>
+                  <Clock size={32} className="text-blue-500 opacity-20" />
+                </motion.div>
+
+                <div className={`p-8 border rounded-[2.5rem] ${cardClass} h-[310px] flex flex-col`}>
+                  <h4 className="text-[11px] font-black text-slate-500 uppercase mb-6 tracking-widest flex items-center justify-between">
+                      <span>Recent Events</span>
+                      <div className="flex gap-1">
+                        {[1, 2, 3].map(i => <div key={i} className="w-1 h-1 rounded-full bg-blue-500 animate-pulse" />)}
+                      </div>
+                  </h4>
+                  <div className="space-y-4 overflow-y-auto flex-1 custom-scrollbar pr-2">
+                    {logs.slice(0, 10).map((log, i) => (
+                      <motion.div initial={{ x: 10, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: i * 0.05 }} key={i} className="flex justify-between items-center text-[10px] font-mono border-b border-white/5 pb-3">
+                        <span className={`px-2 py-0.5 rounded ${log.status === 'HIT' ? 'bg-blue-500/10 text-blue-500' : 'bg-amber-500/10 text-amber-500'}`}>{log.status}</span>
+                        <span className="opacity-50 truncate w-24">{log.url}</span>
+                        <span className="font-bold">{log.latency}ms</span>
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div key="settings" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-2xl mx-auto">
+              <div className={`border rounded-[3rem] p-12 ${cardClass}`}>
+                <h3 className="text-xl font-black mb-10 flex items-center gap-4 text-blue-500"><Settings size={24} /> Configuration</h3>
+                <div className="space-y-12">
+                  <section>
+                    <div className="flex justify-between items-end mb-6">
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Cache Lifetime: {ttlInput}s</h4>
+                      <Clock className="text-slate-700" size={20} />
                     </div>
-                  ))}
+                    <input type="range" min="10" max="3600" value={ttlInput} onChange={(e) => setTtlInput(e.target.value)} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 mb-8" />
+                    <button onClick={updateTTL} className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl hover:shadow-2xl hover:shadow-blue-500/30 transition-all uppercase tracking-widest text-[10px]">Save Configuration</button>
+                  </section>
                 </div>
               </div>
-            </div>
-          </div>
-        ) : (
-          <div className="max-w-2xl mx-auto">
-            <div className={`border rounded-[2.5rem] p-10 ${cardClass}`}>
-              <h3 className="text-xl font-black mb-8 flex items-center gap-4 text-blue-500"><Settings size={24} /> Configuration</h3>
-              <input type="range" min="10" max="3600" value={ttlInput} onChange={(e) => setTtlInput(e.target.value)} className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer mb-8" />
-              <button onClick={handleLogout} className="w-full py-3 text-red-500 text-[10px] font-black uppercase tracking-widest">Terminate Session</button>
-            </div>
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
 };
 
-const StatBar = ({ label, value, total, color, icon: Icon }) => {
+const StatBar = ({ label, value, total, color, icon: Icon, delay }) => {
     const percentage = Math.round((value / total) * 100) || 0;
     return (
-        <div>
+        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay }}>
             <div className="flex justify-between items-end mb-3">
                 <div className="flex items-center gap-3">
-                    <Icon size={16} className="text-slate-400" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</span>
+                    <Icon size={16} className="text-slate-500" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{label}</span>
                 </div>
-                <span className="text-xl font-black text-white">{value}</span>
+                <span className="text-lg font-black">{percentage}%</span>
             </div>
-            <div className="h-2 w-full bg-slate-800/50 rounded-full overflow-hidden">
-                <motion.div initial={{ width: 0 }} animate={{ width: `${percentage}%` }} className={`h-full ${color} rounded-full`} />
+            <div className="h-3 w-full bg-slate-800/30 rounded-full overflow-hidden p-[2px] border border-white/5">
+                <motion.div initial={{ width: 0 }} animate={{ width: `${percentage}%` }} transition={{ duration: 1, ease: "easeOut" }} className={`h-full bg-gradient-to-r ${color} rounded-full`} />
             </div>
-        </div>
+        </motion.div>
     );
+};
+
+const CustomTooltip = ({ active, payload }) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="glass p-4 rounded-2xl border-white/10 text-[10px] font-black uppercase tracking-widest">
+        <p className="text-blue-500 mb-1">Hits: {payload[0].value}</p>
+        <p className="text-amber-500">Misses: {payload[1].value}</p>
+      </div>
+    );
+  }
+  return null;
 };
 
 export default Dashboard;
