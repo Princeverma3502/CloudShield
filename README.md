@@ -1,44 +1,80 @@
-# CloudShield: High-Performance Edge Proxy & Cache Engine 🛡️
+🛡️ CloudShield SaaS
+Universal Edge Monitoring & Infrastructure Analytics
+CloudShield is a full-stack Infrastructure-as-a-Service (IaaS) platform that allows any developer to monitor their website's health, global traffic, and bandwidth efficiency by simply adding a single <script> tag.
 
-CloudShield is a production-grade middleware proxy designed to optimize API traffic, reduce upstream latency, and prevent "Cache Stampedes" through intelligent request coalescing. It features a real-time observability dashboard with global traffic visualization.
+🚀 Key Features
+Universal Integration: A drop-in <script> that works with React, Vue, WordPress, or plain HTML.
 
-![CloudShield Dashboard Preview](./dashboard.png)
+Real-time Telemetry: Tracks global hits, misses, and origin latency via a centralized Node.js collector.
 
-## 🚀 Key Engineering Features
+Infrastructure Controls: Dynamic TTL (Time-To-Live) management and Global Cache Purging.
 
-### 1. Request Coalescing (The "Wait-Group" Pattern)
-Prevents redundant upstream calls by collapsing multiple concurrent requests for the same resource into a single fetch. This significantly reduces server load during traffic spikes.
+Health Sentinel: Automated incident logging for latency spikes and connection drops.
 
-### 2. Distributed Caching with Redis
-Utilizes Redis for sub-millisecond data retrieval. Supports dynamic TTL (Time-to-Live) management controlled directly via the dashboard.
+Visual Analytics: Interactive global traffic map, bandwidth savings counter (MB), and velocity charts.
 
-### 3. Global Traffic Radar
-Automatically resolves upstream host IPs to geographic coordinates, providing a real-time visualization of data origins on a monochromatic world radar.
+SaaS Ready: GitHub OAuth authentication and public report sharing.
 
-### 4. Smart Latency Savings Calculator
-A real-time telemetry engine that calculates the total network time saved (in milliseconds) by serving data from the cache or coalescing pending requests.
+🛠️ The Tech Stack
+Frontend: React, Tailwind CSS, Framer Motion (Animations), Recharts, Lucide Icons.
 
-### 5. API Authentication Shield
-Implements a secure `x-api-key` header requirement to protect the proxy middleware from unauthorized use, complete with a key-rotation management system.
+Backend: Node.js, Express, response-time middleware, Axios.
 
----
+Database/Auth: Supabase (PostgreSQL & GitHub OAuth).
 
-## 🛠️ Technical Stack
+Deployment: Vercel (Frontend), Render (Backend).
 
-- **Frontend:** React, Tailwind CSS, Lucide, Recharts, React-Simple-Maps
-- **Backend:** Node.js, Express, Axios
-- **Storage:** Redis (High-speed Key-Value Store)
-- **Infrastructure:** Docker, Docker-Compose
+📡 How It Works (Architecture)
+CloudShield operates as a third-party monitoring layer between the end-user and the developer's origin server.
 
----
+The Shield Script: When a visitor loads a "shielded" site, the script captures the client ID and origin metadata.
 
-## ⚡ Quick Start (Docker)
+Telemetry Collection: Data is sent via a cross-origin (CORS) POST request to the CloudShield Backend.
 
-Ensure you have Docker Desktop installed, then run:
+Data Aggregation: The backend processes the hit, simulates cache logic, and updates the global traffic state.
 
-```bash
-# Clone the repository
-git clone [https://github.com/your-username/cache-cloud.git](https://github.com/your-username/cache-cloud.git)
+Live Dashboard: The developer sees real-time updates on their private dashboard, including a health pulse and a global map of their traffic.
 
-# Spin up the infrastructure
-docker-compose up --build
+💻 Quick Start (For Developers)
+1. Clone & Install
+Bash
+git clone https://github.com/your-username/cloudshield.git
+cd cloudshield
+
+# Install Backend
+cd backend && npm install
+
+# Install Frontend
+cd ../frontend && npm install
+2. Environment Variables
+Create a .env in the backend folder:
+
+Plaintext
+PORT=5000
+BACKEND_URL=https://your-render-app.com
+DISCORD_WEBHOOK_URL=your_optional_webhook
+Create a .env in the frontend folder:
+
+Plaintext
+REACT_APP_SUPABASE_URL=your_supabase_url
+REACT_APP_SUPABASE_ANON_KEY=your_supabase_key
+REACT_APP_API_URL=https://your-render-app.com
+3. Run Locally
+Bash
+# In /backend
+npm start
+
+# In /frontend
+npm start
+🛡️ Integrating with your Website
+Simply paste this snippet into the <head> of your site:
+
+HTML
+<script 
+  src="https://cloudshield-backend.onrender.com/shield.js" 
+  data-client-id="YOUR_UNIQUE_ID" 
+  async>
+</script>
+
+📄 License
+Distributed under the MIT License. See LICENSE for more information.
