@@ -3,7 +3,7 @@ import axios from 'axios';
 import toast, { Toaster } from 'react-hot-toast';
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
 import { AreaChart, Area, XAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { ShieldCheck, Globe, Clock, Key, Terminal, Settings, Sun, Moon, RefreshCw, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, Globe, Clock, Key, Settings, Sun, Moon, AlertTriangle, Lock } from 'lucide-react';
 
 const geoUrl = "https://raw.githubusercontent.com/lotusms/projects/master/hostel/aims/t3/world-110m.json";
 
@@ -11,6 +11,11 @@ const geoUrl = "https://raw.githubusercontent.com/lotusms/projects/master/hostel
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 
 const Dashboard = () => {
+  // --- AUTHENTICATION STATE ---
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [passInput, setPassInput] = useState("");
+
+  // --- APP STATE ---
   const [stats, setStats] = useState({ hits: 0, misses: 0, coalesced: 0, totalSavedMs: 0, ttl: 60 });
   const [logs, setLogs] = useState([]);
   const [chartData, setChartData] = useState([]);
@@ -19,6 +24,29 @@ const Dashboard = () => {
   const [ttlInput, setTtlInput] = useState(60);
   const [isDark, setIsDark] = useState(true);
 
+  // --- AUTH LOGIC ---
+  const handleLogin = (e) => {
+    e.preventDefault();
+    // In production, this validates against your ADMIN_PASSPHRASE via headers
+    if (passInput.length > 0) {
+      setIsAuthenticated(true);
+      localStorage.setItem("admin_token", passInput);
+      toast.success("Access Granted");
+    }
+  };
+
+  useEffect(() => {
+    const saved = localStorage.getItem("admin_token");
+    if (saved) setIsAuthenticated(true);
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem("admin_token");
+    setIsAuthenticated(false);
+    window.location.reload();
+  };
+
+  // --- DATA FETCHING ---
   const fetchData = async () => {
     try {
       const s = await axios.get(`${API_BASE}/api/performance`);
@@ -30,62 +58,90 @@ const Dashboard = () => {
         hits: s.data.hits, 
         misses: s.data.misses 
       }].slice(-15));
-    } catch (e) {}
+    } catch (e) { console.log("Fetch error - checking connection..."); }
   };
 
   useEffect(() => {
-    const int = setInterval(fetchData, 2000);
-    return () => clearInterval(int);
-  }, []);
+    if (isAuthenticated) {
+      const int = setInterval(fetchData, 2000);
+      return () => clearInterval(int);
+    }
+  }, [isAuthenticated]);
 
   const getAdminHeaders = () => {
-    const pass = window.prompt("Enter Admin Passphrase:");
-    return pass ? { headers: { 'x-admin-auth': pass } } : null;
+    const token = localStorage.getItem("admin_token");
+    return { headers: { 'x-admin-auth': token } };
   };
 
+  // --- ACTIONS ---
   const updateTTL = async () => {
-    const config = getAdminHeaders();
-    if (!config) return;
     try {
-        await axios.post(`${API_BASE}/api/ttl`, { ttl: parseInt(ttlInput) }, config);
+        await axios.post(`${API_BASE}/api/ttl`, { ttl: parseInt(ttlInput) }, getAdminHeaders());
         toast.success(`TTL updated to ${ttlInput}s`);
-    } catch (e) { toast.error("Unauthorized or Failed"); }
+    } catch (e) { toast.error("Unauthorized"); }
   };
 
   const generateNewKey = async () => {
-    const config = getAdminHeaders();
-    if (!config) return;
     try {
-        const res = await axios.post(`${API_BASE}/api/key`, {}, config);
+        const res = await axios.post(`${API_BASE}/api/key`, {}, getAdminHeaders());
         setApiKey(res.data.apiKey);
         toast.success("New Master Key Generated");
     } catch (e) { toast.error("Unauthorized"); }
   };
 
   const purgeCache = async () => {
-    const config = getAdminHeaders();
-    if (!config) return;
     try {
-        await axios.delete(`${API_BASE}/api/purge`, config);
+        await axios.delete(`${API_BASE}/api/purge`, getAdminHeaders());
         toast.success("Global Cache Purged");
         setStats(prev => ({ ...prev, hits: 0, misses: 0, coalesced: 0 }));
     } catch (e) { toast.error("Unauthorized"); }
   };
 
+  // --- STYLING ---
   const themeClass = isDark ? "bg-[#020617] text-slate-300" : "bg-slate-50 text-slate-900";
   const cardClass = isDark ? "bg-slate-900/40 border-slate-800" : "bg-white border-slate-200 shadow-sm";
   const totalRequests = stats.hits + stats.misses + stats.coalesced || 1;
 
+  // --- LOGIN VIEW ---
+  if (!isAuthenticated) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center p-6 ${isDark ? 'bg-[#020617]' : 'bg-slate-100'}`}>
+        <div className={`p-8 rounded-3xl w-full max-w-md border transition-all ${cardClass}`}>
+          <div className="flex justify-center mb-6">
+             <img src="/logo.png" alt="CloudShield" className={`w-16 h-16 ${isDark ? 'brightness-0 invert' : ''}`} />
+          </div>
+          <h2 className={`text-center text-2xl font-black mb-8 ${isDark ? 'text-white' : 'text-slate-900'}`}>CloudShield Login</h2>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <input 
+              type="password" 
+              placeholder="Admin Passphrase" 
+              className={`w-full px-4 py-3 rounded-xl outline-none border transition-all ${isDark ? 'bg-black/40 border-slate-700 text-white focus:border-blue-500' : 'bg-white border-slate-300 text-slate-900 focus:border-blue-500'}`}
+              onChange={(e) => setPassInput(e.target.value)}
+            />
+            <button type="submit" className="w-full py-4 bg-blue-600 text-white font-black rounded-xl hover:bg-blue-500 transition-all uppercase tracking-widest text-xs">Unlock Engine</button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // --- DASHBOARD VIEW ---
   return (
     <div className={`min-h-screen transition-colors duration-500 p-8 font-sans ${themeClass}`}>
       <Toaster />
       <div className="max-w-7xl mx-auto">
         <header className="flex justify-between items-center mb-10">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-600 rounded-lg text-white shadow-lg shadow-blue-600/20"><ShieldCheck /></div>
+            {/* ADAPTIVE LOGO */}
+            <img 
+              src="/logo.png" 
+              alt="CloudShield" 
+              className={`w-10 h-10 object-contain transition-all duration-300 ${isDark ? 'brightness-0 invert' : ''}`} 
+            />
             <h1 className="text-xl font-black tracking-tighter uppercase">CloudShield</h1>
           </div>
           <div className="flex items-center gap-4">
+            <button onClick={handleLogout} className="text-[10px] font-black text-red-500 hover:underline mr-4">LOGOUT</button>
             <button onClick={() => setIsDark(!isDark)} className={`p-2 rounded-full border ${isDark ? 'border-slate-800 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-100'} transition-all`}>
                 {isDark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
@@ -101,7 +157,6 @@ const Dashboard = () => {
             <div className={`p-6 rounded-3xl border flex flex-col justify-center ${cardClass}`}>
                 <h3 className="text-[10px] font-black uppercase text-slate-500 mb-6 tracking-widest text-center">Efficiency Ratio</h3>
                 <div className="space-y-4">
-                    {/* Progress bars for Hits, Coalesced, and Misses */}
                     <div>
                         <div className="flex justify-between text-xs mb-1 font-bold"><span>Cache Hits</span><span className="text-blue-500">{stats.hits}</span></div>
                         <div className="h-2 w-full bg-slate-800/20 rounded-full overflow-hidden">
@@ -123,7 +178,6 @@ const Dashboard = () => {
                 </div>
             </div>
 
-            {/* Chart Section */}
             <div className={`lg:col-span-2 border rounded-3xl p-6 h-[250px] ${cardClass}`}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={chartData}>
@@ -141,7 +195,6 @@ const Dashboard = () => {
               </ResponsiveContainer>
             </div>
 
-            {/* Map Section */}
             <div className={`lg:col-span-2 border rounded-3xl overflow-hidden h-[300px] relative ${cardClass}`}>
               <div className="absolute top-6 left-6 z-10 text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><Globe size={14}/> Traffic Map</div>
               <ComposableMap projectionConfig={{ scale: 140 }} style={{ width: "100%", height: "100%" }}>
@@ -158,7 +211,6 @@ const Dashboard = () => {
               </ComposableMap>
             </div>
 
-            {/* Stats Sidebar */}
             <div className="space-y-4">
               <div className={`p-5 border rounded-3xl flex items-center justify-between ${cardClass}`}>
                 <div><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Savings</p><p className="text-3xl font-black">{stats.totalSavedMs}ms</p></div>
@@ -177,7 +229,6 @@ const Dashboard = () => {
           </div>
         ) : (
           <div className="max-w-2xl mx-auto space-y-6 animate-in slide-in-from-bottom-4">
-            {/* Settings Tab Content */}
             <div className={`border rounded-3xl p-8 ${cardClass}`}>
               <h3 className="text-lg font-black mb-6 flex items-center gap-2 text-blue-500"><Settings size={20} /> Cache Configuration</h3>
               <label className="text-xs font-bold text-slate-500 mb-4 block uppercase">Global TTL: {ttlInput}s</label>
