@@ -185,7 +185,7 @@ const Dashboard = () => {
                 <h4 className="text-[11px] font-black text-slate-500 uppercase mb-6 tracking-widest flex items-center gap-3">
                     <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"/> Live Traffic
                 </h4>
-                <div className="space-y-4 overflow-y-auto flex-1">
+                <div className="space-y-4 overflow-y-auto flex-1 custom-scrollbar">
                   {logs.slice(0, 10).map((log, i) => (
                     <div key={i} className="flex justify-between items-center text-[10px] font-mono border-b border-white/5 pb-3">
                       <span className={log.status === 'HIT' ? 'text-blue-500' : 'text-amber-500'}>{log.status}</span>
@@ -230,5 +230,3 @@ const StatBar = ({ label, value, total, color, icon: Icon }) => {
 };
 
 export default Dashboard;
-
-// Trigger new build
